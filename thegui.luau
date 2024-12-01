@@ -29,10 +29,12 @@ end
 FlyUtility.ShouldPlatformStand = true
 
 -- \ Variables, tables... \ --
+local cloneref = (cloneref or clonereference) or function(a: any) return a end -- shitsploit support!!
 local Players: Players = cloneref(game:GetService("Players"))
 local Player = Players.LocalPlayer
 local Character: Model = Players.LocalPlayer.Character or Players.LocalPlayer.CharacterAdded:Wait()
 local HumanoidRootPart: Part = Players.LocalPlayer.Character.PrimaryPart
+
 local Humanoid: Humanoid = Players.LocalPlayer.Character.Humanoid
 local Collision: UnionOperation = Players.LocalPlayer.Character:WaitForChild("Collision")
 local CollisionClone: UnionOperation = Players.LocalPlayer.Character:FindFirstChild("CollisionNew") or Players.LocalPlayer.Character:FindFirstChild("Collision"):Clone()
@@ -107,7 +109,8 @@ local timothyModel = Entity:WaitForChild("Spider")
 local modules = Players.LocalPlayer.PlayerGui.MainUI.Initiator.Main_Game.RemoteListener.Modules
 local A90 = modules.A90
 local Dread = modules.Dread
-local MainGame = Player.PlayerGui.MainUI.Initiator.Main_Game
+local MainGame: ModuleScript = Player.PlayerGui.MainUI.Initiator.Main_Game
+local MainGameSrc
 local screechModule = MainGame.RemoteListener.Modules.Screech
 local RunService: RunService = cloneref(game:GetService("RunService"))
 local IsBypass = false
@@ -246,8 +249,19 @@ function Functions.PadlockCode(Paper: Tool, PlayerWithTool: Player)
     end
 end
 
+function Functions.GetPrompts(condition: (ProximityPrompt) -> boolean)
+    local prompts = {}
+    for _, v in pairs(GamePrompts) do
+        if condition(v) then
+            table.insert(prompts, v)
+        end
+    end
+
+    return prompts
+end
+
 function Functions.GetCrouch()
-    return (if Supported["require"] then require(MainGame).crouching else Character:GetAttribute("Crouching"))
+    return (if MainGameSrc then MainGameSrc.crouching else Character:GetAttribute("Crouching"))
 end
 function Functions.DistanceFromCharacter(point: Instance)
     return (Character:GetPivot().Position - point:GetPivot().Position).Magnitude
@@ -267,7 +281,7 @@ end
 TestFeature("require", function()
     require(Player:WaitForChild("PlayerScripts"):WaitForChild("PlayerModule"))
 end)
-
+MainGameSrc = if Supported["require"] then require(MainGame) else nil
 local CanFirePP = TestFeature("fireproximityprompt", function()
     local prox = Instance.new("ProximityPrompt", Instance.new("Part", workspace))
     local trig = false
@@ -518,7 +532,7 @@ function Functions.GetDoorText(door: Model)
 end
 
 function Functions.DoorESP(room)
-    if not room:IsA("Model") or not Toggles.DoorESP.Value then
+    if not room or not room:IsA("Model") or not Toggles.DoorESP.Value then
         return
     end
 
@@ -574,17 +588,27 @@ function Functions.ObjectiveESP(objective)
         })
     elseif objective.Name == "WaterPump" then
         local wheel = objective:WaitForChild("Wheel", 5)
-        local OnFrame = objective:FindFirstChild("OnFrame", true)
 
-        if wheel and (OnFrame and OnFrame.Visible) then
+        if wheel and wheel:FindFirstChild("HelpParticle") then
             local Random = Functions.RandomString()
 
             local ESPInstance = Functions.ESP({
                 Object = wheel,
                 Text = "Valve",
-                Color = Options.ObjectiveESP.Value,
-                Type = "Objective"
+                Color = Options.ObjectiveESPColor.Value,
+                Type = "Objective",
+                OnDestroyFunc = function()
+                    if Connections[Random] then
+                        Connections[Random]:Disconnect()
+                    end
+                end
             })
+
+            Connections[Random] = wheel.ChildRemoved:Connect(function(child)
+                if child.Name == "HelpParticle" then
+                    ESPInstance:Destroy()
+                end
+            end)
         end
     elseif objective.Name == "MinesAnchor" then
         local sign = objective:WaitForChild("Sign", 5)
@@ -690,6 +714,9 @@ function Functions.PlayerESP(player: Player)
 end
 
 function Functions.LadderESP(ladder: Model)
+    if ladder.Name ~= "LadderModel" or TheMinesBypassed then
+        return
+    end
     Functions.ESP({
         Object = ladder,
         Text = "Ladder",
@@ -702,7 +729,7 @@ function Functions.AssetCheck(asset: Instance, UnloadState: boolean)
 
     if asset and asset.Parent then
 
-        if asset.Name == "Collision" and asset.Parent.Name == "TriggerEventCollision" and Toggles.NoSeekFE.Value then
+        if asset.Name == "Collision" and asset.Parent.Name == "TriggerEventCollision" and Toggles.NoSeekFE.Value and gameData.LatestRoom.Value ~= 50 then
             task.spawn(Functions.SetupDeleteSeek, asset)
         end
 
@@ -724,7 +751,7 @@ function Functions.AssetCheck(asset: Instance, UnloadState: boolean)
             end
         end
 
-        if IsFloor.Hotel then
+        if IsFloor.Hotel or IsFloor.Fools then
             if (asset.Name == "Seek_Arm" or asset.Name == "ChandelierObstruction") then
                 for _, v in pairs(asset:GetDescendants()) do
                     if v:IsA("BasePart") then
@@ -735,8 +762,13 @@ function Functions.AssetCheck(asset: Instance, UnloadState: boolean)
         end
 
         if IsFloor.Hotel or IsFloor.Fools or IsFloor.Mines or IsFloor.Backdoor then
-            if asset:GetAttribute("LoadModule") == "DupeRoom" or asset:GetAttribute("LoadModule") == "SpaceSideroom" then
-                task.spawn(Functions.DupeDisable, asset, (if UnloadState then false else not Toggles.NoDupeTouch.Value))
+            if asset.Name == "DoorFake" then
+                asset:WaitForChild("Hidden", 5).CanTouch = if UnloadState then true else not Toggles.NoDupeTouch.Value
+                local lock = asset:FindFirstChild("Lock")
+
+                if lock and lock:FindFirstChild("UnlockPrompt") then
+                    lock.UnlockPrompt.Enabled = if UnloadState then true else not Toggles.NoDupeTouch.Value
+                end
             end
         end
 
@@ -821,6 +853,8 @@ function Functions.SetupCurrentRoomESP(room: Model)
         task.spawn(Functions.HidingSpotESP, v)
 
         task.spawn(Functions.ObjectiveESP, v)
+
+        task.spawn(Functions.LadderESP, v)
     end
 end
 
@@ -933,7 +967,7 @@ function Functions.SetSpeedBypass(set: boolean)
         return
     end
 
-    if IsBypass then
+    if set then
         Options.Walkspeed:SetMax(75)
         Options.FlySpeed:SetMax(75)
     end
@@ -969,24 +1003,6 @@ end
 
 
 
-function Functions.DupeDisable(dupe: Model, value: boolean)
-    if dupe and dupe:IsA("Model") and (dupe.Name == "SideroomDupe" or dupe:GetAttribute("LoadModule") == "DupeRoom" or dupe:GetAttribute("LoadModule") == "SpaceSideroom") then
-        if dupe:GetAttribute("LoadModule") == "SpaceSideroom" then
-            local SideroomCollision = dupe:WaitForChild("Collision")
-
-            SideroomCollision.CanTouch = not value
-            SideroomCollision.CanCollide = value
-        else
-            local doorfake = dupe:WaitForChild("DoorFake")
-
-            doorfake:WaitForChild("Hidden").CanTouch = not value
-            
-            if doorfake:FindFirstChild("Lock") then
-                doorfake.Lock:WaitForChild("UnlockPrompt").Enabled = not value
-            end
-        end
-    end
-end
 function Functions.SetupDeleteSeek(trigger: BasePart)
     if Toggles.NoSeekFE.Value then
         Library:Notification("Attempting to delete Seek...")
@@ -1021,14 +1037,38 @@ function Functions.SetupDeleteSeek(trigger: BasePart)
     end
 end
 
+function Functions.GetEndNode(room: Model)
+    if room:FindFirstChild("RunnerNodes") then
+        local Door: Model = room:FindFirstChild("Door")
+        local DoorPivot = Door:GetPivot().Position
+        local ClosestNode = nil
+        local SmallestDistance = math.huge
+        local RunnerNodes: Folder = room.RunnerNodes
+
+        for _, v: Part in pairs(RunnerNodes:GetChildren()) do
+            if (v.Position - DoorPivot).Magnitude < SmallestDistance then
+                ClosestNode = v
+                SmallestDistance = (v.Position - DoorPivot).Magnitude
+            end
+        end
+
+        return ClosestNode
+    end
+end
+
 function Functions.MinecartTeleport(room: Model)
     if (tonumber(room.Name) >= 45 and tonumber(room.Name) <= 49) and Toggles.MinecartTeleport.Value then
-        task.spawn(function()
+        if room.Name == "45" then
             repeat
                 task.wait()
+            until Camera:FindFirstChild("MinecartRig")
+        end
+        task.spawn(function()
+            repeat
+                RunService.RenderStepped:Wait()
                 for _, v in pairs(Minecarts) do
                     if v and v:IsDescendantOf(workspace) and v.Parent and v.Parent == Camera then
-                        v.PrimaryPart.CFrame = room:FindFirstChild("Door"):FindFirstChild("Door").CFrame
+                        v.PrimaryPart.CFrame = Functions.GetEndNode(room).CFrame
                     end
                 end
             until room:FindFirstChild("Door"):GetAttribute("Opened") 
@@ -1066,55 +1106,6 @@ function Functions.ShortName(v: Instance)
     return Ret
 end
 
-function Functions.AvailablePrompt(prompt: ProximityPrompt)
-    if not prompt or not prompt.Parent then
-        return false
-    end
-
-    if not prompt:IsA("ProximityPrompt") then
-        return false
-    end
-
-    if prompt.Parent:GetAttribute("JeffShop") then
-        return false
-    end
-
-    if prompt.Parent:GetAttribute("PropType") then
-        if prompt.Parent:GetAttribute("PropType") == "Heal" and Humanoid.Health == 100 then
-            return false
-        end
-    end
-
-    if prompt:FindFirstAncestor("CandyRed") then
-        return false
-    end
-
-    if prompt.KeyboardKeyCode ~= Enum.KeyCode.E then
-        return false
-    end
-
-    if not prompt.Enabled then
-        return false
-    end
-
-    if prompt.Parent.Name == "Retro_Wardrobe" or prompt.Parent.Name == "MinesAnchor" then
-        return false
-    end
-
-    if Functions.DistanceFromCharacter(prompt.Parent) > prompt.MaxActivationDistance then
-        return false
-    end
-
-    if prompt:GetAttribute("Interactions" .. Character.Name) and prompt.Parent.Name ~= "Lock" and not prompt:FindFirstAncestor("MinesGenerator") and prompt.Parent.Parent.Name ~= "MinesGateButton" and not prompt.Parent:GetAttribute("Locked") then
-        return false
-    end
-
-    if prompt:FindFirstAncestor("KeyObtainFake") or prompt:FindFirstAncestor("Padlock") then
-        return false
-    end
-
-    return AutoInteractPrompts[prompt.Name] ~= nil
-end
 
 function Functions.GuidingLightESP(Guidance: BasePart)
     if Guidance.Name ~= "Guidance" then
@@ -1140,132 +1131,7 @@ local Window = Library:CreateWindow({
 })
 
 
--- \ custom functions rel (may need them and whoever is seeing this may feel free to use this) \ --
 
-if Supported["hookmetamethod"] then
-	Hooks.FindFirstChildWithCondition = hookmetamethod(game, "__namecall", function(self, ...)
-        local args = {...}
-        local met = getnamecallmethod()
-        local child = nil
-
-        if met == "FindFirstChildWithCondition" then
-            if args[3] and args[3] == true then
-                for _, v in ipairs(self:GetDescendants()) do
-					if args[2](v) == true and args[1] == v.Name then
-                        child = v
-                        break
-                    end
-				end
-            else
-				for _, v in ipairs(self:GetChildren()) do
-					if args[2](v) == true and args[1] == v.Name then
-                        child = v
-                        break
-                    end
-				end
-			end
-
-            return child
-        end
-
-        return Hooks.FindFirstChildWithCondition(self, ...)
-    end)
-
-    Hooks.WaitForChildWithCondition = hookmetamethod(game, "__namecall", function(self, ...)
-        local args = {...}
-        local met = getnamecallmethod()
-        local child = nil
-
-        if met == "WaitForChildWithCondition" then
-            local t = tick()
-            
-            if args[3] == nil then
-                args[3] = math.huge
-            end
-
-            repeat
-				task.wait()
-                for _, v in ipairs(self:GetChildren()) do
-					if args[1] == v.Name and args[2](v) == true then
-                        child = v
-                    end
-				end
-			until tick() - t >= args[3] or child or not self
-
-            if child and child.Parent and self then
-                return child
-            end
-        end
-
-        return Hooks.WaitForChildWithCondition(self, ...)
-    end)
-
-    Hooks.WaitForChildWhichIsA = hookmetamethod(game, "__namecall", function(self, ...)
-        local met = getnamecallmethod()
-        local args = {...}
-        local class = args[1]
-        local timeout = args[2] or math.huge
-
-        if met == "WaitForChildWhichIsA" then
-			local t = tick()
-            repeat
-				task.wait()
-			until self:FindFirstChildWhichIsA(class) or tick() - t >= timeout
-
-            if self and self:FindFirstChildWhichIsA(class) then
-                return self:FindFirstChildWhichIsA(class)
-            end
-        end
-
-        return Hooks.WaitForChildWhichIsA(self, ...)
-    end)
-else
-    function Functions.FindFirstChildWithCondition(self: Instance, childName: string, condition: () -> (), recursive: boolean)
-        local child = nil
-
-        if recursive then
-            for _, v in ipairs(self:GetDescendants()) do
-                if condition(v) and childName == v.Name then
-                    child = v
-                    break
-                end
-            end
-        else
-            for _, v in ipairs(self:GetChildren()) do
-                if condition(v) and childName == v.Name then
-                    child = v
-                    break
-                end
-            end
-        end
-
-        if child and child.Parent then
-            
-        end
-    end
-
-    function Functions.WaitForChildWithCondition(self: Instance, childName: string, condition: () -> (), timeout: number | nil)
-        local child = nil
-        local t = tick()
-
-        if timeout == nil then
-            timeout = math.huge
-        end
-
-        repeat
-            task.wait()
-            for _, v in ipairs(self:GetChildren()) do
-                if condition(v) and childName == v.Name then
-                    child = v
-                end
-            end
-        until child or not self or tick() - t >= timeout
-
-        if child and self and child.Parent then
-            return child
-        end
-    end
-end
 
 
 local Tabs = {
@@ -1432,9 +1298,13 @@ Groupboxes.Reach:AddSlider("PromptReach", {
 
 Groupboxes.Reach:AddDivider()
 
-Groupboxes.Reach:AddToggle("DoorReach", {
+Groupboxes.Reach:AddSlider("DoorReach", {
     Text = "Door Reach",
-    Default = false
+    Default = 12,
+    Max = 28,
+    Min = 0,
+    Rounding = 0,
+    Compact = true
 })
 
 
@@ -1822,7 +1692,14 @@ Groupboxes.View:AddToggle("NoCutscenes", {
 
 Groupboxes.View:AddToggle("DisableCameraShake", {
     Text = "Disable Camera Shake",
-    Default = false
+    Default = false,
+    Visible = Supported["require"]
+})
+
+Groupboxes.View:AddToggle("DisableCameraBobbing", {
+    Text = "Disable Camera Bobbing",
+    Default = false,
+    Visible = Supported["require"]
 })
 
 Groupboxes.View:AddToggle("ThirdPerson", {
@@ -1836,7 +1713,7 @@ Groupboxes.View:AddToggle("ThirdPerson", {
     Mode = "Toggle"
 })
 
-Groupboxes.View:AddSlider("fovSlider", {
+Groupboxes.View:AddSlider("FieldOfView", {
     Text = "Field Of View",
     Default = 70,
     Min = 30,
@@ -2021,7 +1898,7 @@ Toggles.AntiDread:OnChanged(function(value)
     Dread.Name = if value then "_Dread" else "Dread"
 end)
 Toggles.NoTimothyJumpscare:OnChanged(function(value)
-    timothyModel.Parent = if value then nil else Entity
+    timothyModel.Name = if value then "_Spider" else "Spider"
 end)
 
 Toggles.A90Disabled:OnChanged(function(value)
@@ -2052,7 +1929,7 @@ Toggles.NoSeekFE:OnChanged(function()
         local trigcollision = CurrentRooms[tostring(gameData.LatestRoom.Value + 1)]:FindFirstChild("TriggerEventCollision")
         local collision = if trigcollision then trigcollision:FindFirstChild("Collision") else nil
 
-        if trigcollision and collision then
+        if trigcollision and collision and gameData.LatestRoom.Value ~= 50 then
             Functions.SetupDeleteSeek(collision)
         end
     end
@@ -2098,8 +1975,16 @@ Toggles.NoDupeTouch:OnChanged(function(value)
         return
     end
     for _, v in pairs(CurrentRoomModel:GetChildren()) do
-        if v:GetAttribute("LoadModule") == "DupeRoom" or v:GetAttribute("LoadModule") == "SpaceSideroom" then
-            task.spawn(Functions.DupeDisable, v, not value)
+        if v.Name == "SideroomDupe" then
+            local DoorFake = v:WaitForChild("DoorFake", 5)
+
+            if DoorFake then
+                DoorFake:WaitForChild("Hidden", 5).CanTouch = not value
+            end
+
+            if DoorFake:FindFirstChild("Lock") then
+                DoorFake.Lock:WaitForChild("UnlockPrompt").Enabled = not value
+            end
         end
     end
 end)
@@ -2127,16 +2012,11 @@ end)
 
 Toggles.AnticheatBypass:OnChanged(function(value)
     if value then
-        Library:Notification("To bypass the anticheat, you need to get onto a ladder. Ladder ESP will be enabled.")
-        if Character:GetAttribute("Climbing") then
-            Character:SetAttribute("Climbing", false)
-            TheMinesBypassed = true
-            Library:Notification("Anticheat bypassed! This will last until the next cutscene. Halt will break this")
-        else
-            for _, v in pairs(CurrentRooms:GetDescendants()) do
-                if v.Name == "Ladder" and v:IsA("Model") then
-                    task.spawn(Functions.LadderESP, v)
-                end
+        Library:Notification("To bypass the anticheat, you need to get onto a ladder. Ladder ESP will be enabled. \nDo not move while on the ladder, avoid being on the bottom.")
+
+        for _, v in pairs(CurrentRooms:GetDescendants()) do
+            if v.Name == "Ladder" and v:IsA("Model") then
+                task.spawn(Functions.LadderESP, v)
             end
         end
     else
@@ -2534,129 +2414,214 @@ if CurrentRoomModel:GetAttribute("RawName"):find("Halt") and Options.EntityNotif
     Library:Notification("Halt will be in the next room.")
 end
 
-for _, v in pairs(CurrentRooms:GetDescendants()) do
-    task.spawn(Functions.AssetCheck, v)
+for _, v in pairs(CurrentRooms:GetChildren()) do
+    Functions.SetupRoom(v)
 end
 
 -- \ Main connections \ --
 Library:GiveSignal(RunService.RenderStepped:Connect(function()
+    if MainGameSrc then
+        if Toggles.ViewmodelOffset.Value then
+            MainGameSrc.tooloffset = Vector3.new(Options.XOffset.Value, Options.YOffset.Value, Options.ZOffset.Value)
+        end
 
+        if Toggles.ThirdPerson.Value then
+            Camera.CFrame = MainGameSrc.finalCamCFrame * CFrame.new(2, 0.5, 6)
+        end
 
-    if CurrentRoomModel:FindFirstChild("Door") and CurrentRoomModel:FindFirstChild("Door"):FindFirstChild("ClientOpen") and Toggles.DoorReach.Value then
-        CurrentRoomModel:FindFirstChild("Door"):FindFirstChild("ClientOpen"):FireServer()
+        if Toggles.DisableCameraShake.Value then
+            MainGameSrc.csgo = CFrame.new()
+        end
+
+        if Toggles.DisableCameraBobbing.Value then
+            MainGameSrc.bobspring.Position = Vector3.new()
+            MainGameSrc.spring.Position = Vector3.new()
+        end
+
+        MainGameSrc.fovtarget = Options.FieldOfView.Value
+    else
+        if Toggles.ThirdPerson.Value then
+            Camera.CFrame *= CFrame.new(2, 0.5, 6)
+        end
+        Camera.FieldOfView = Options.FieldOfView.Value
     end
 
-    if Supported["require"] and Toggles.ViewmodelOffset.Value then
-        require(MainGame).tooloffset = Vector3.new(Options.XOffset.Value, Options.YOffset.Value, Options.ZOffset.Value)
+    if Toggles.noeyes.Value and (workspace:FindFirstChild("BackdoorLookman") or workspace:FindFirstChild("Eyes")) then
+        if not IsFloor.Fools then
+            RemotesFolder.MotorReplication:FireServer(-649)
+        else
+            RemotesFolder.MotorReplication:FireServer(0, -90, 0, false)
+        end
     end
 
-    if Toggles.noeyes.Value and (workspace:FindFirstChild("Eyes") or workspace:FindFirstChild("BackdoorLookman")) then
-        RemotesFolder.MotorReplication:FireServer(-649)
-    end
+    if Toggles.Godmode.Value then
+        local RayResult = workspace:Raycast(HumanoidRootPart.Position, Vector3.new(0, -9e9, 0), RaycastParam)
 
-
-    if Toggles.ThirdPerson.Value then
-        Camera.CFrame *= CFrame.new(2, 0.5, 6)
-        Character.Head.LocalTransparencyModifier = 0
-
-        for _, v in pairs(Character:GetChildren()) do
-            if v:IsA("Accessory") then
-                v:FindFirstChild("Handle").LocalTransparencyModifier = 0
+        if RayResult then
+            Collision.Position = HumanoidRootPart.Position - Vector3.new(0, RayResult.Distance - 0.45, 0)
+            if CollisionClone then
+                CollisionClone.Position = HumanoidRootPart.Position
             end
         end
     end
 
-    if Toggles.DisableCameraShake.Value then
-        require(MainGame).csgo = CFrame.new()
+    if Functions.DistanceFromCharacter(workspace.CurrentRooms[tostring(gameData.LatestRoom.Value)]:FindFirstChild("Door")) < Options.DoorReach.Value then
+        workspace.CurrentRooms[tostring(gameData.LatestRoom.Value)]:FindFirstChild("Door"):FindFirstChild("ClientOpen"):FireServer()
     end
 
-    Camera.FieldOfView = Options.fovSlider.Value
-
-    if Supported["require"] then
-        require(MainGame).fovtarget = Options.fovSlider.Value
+    if HumanoidRootPart then
+        HumanoidRootPart.CanCollide = not Toggles.Noclip.Value
     end
 
-    if Toggles.jump.Value and Humanoid then
-        Humanoid.JumpHeight = Options.JumpHeight.Value
+    if Collision then
+        if Toggles.Noclip.Value then
+            Collision.CanCollide = false
+            Collision.CollisionCrouch.CanCollide = false
+        end
+        Collision.CanCollide = not Toggles.Noclip.Value and (not Toggles.Godmode.Value)
+        Collision.CollisionCrouch.CanCollide = not Toggles.Noclip.Value and (not Toggles.Godmode.Value)
     end
 
-    if Options.BodyRotation.Value == "Random" then
-        Collision.Rotation = Vector3.new(math.random(-180, 180), math.random(-180, 180), CollisionClone.Rotation.Z)
+    if Character:FindFirstChild("UpperTorso") then
+        Character.UpperTorso.CanCollide = not Toggles.Noclip.Value
     end
 
-    if Toggles.Godmode.Value then
-        local ray = workspace:Raycast(HumanoidRootPart.Position, Vector3.new(0, -9e9, 0), RaycastParam)
-        if ray then
-            Collision.Position = HumanoidRootPart.Position - Vector3.new(0, ray.Distance - 0.45, 0)
-            CollisionClone.Position = HumanoidRootPart.Position
+    if Character:FindFirstChild("LowerTorso") then
+        Character.LowerTorso.CanCollide = not Toggles.Noclip.Value
+    end
+
+    if IsFloor.Hotel and Toggles.AutoBreakerBox.Value then
+        if RemotesFolder:FindFirstChild("EBF") and CurrentRoomModel.Name == "100" then
+            RemotesFolder.EBF:FireServer() -- fuck optimization
         end
     end
 
-    if Toggles.SpamOtherTools.Value and Options.SpamOtherToolsKeybind:GetState() then
-        for _, player in pairs(Players:GetPlayers()) do
+    if not CurrentRoomModel then
+        CurrentRoomModel = CurrentRooms[tostring(gameData.LatestRoom.Value)]
+    end
+
+    if Toggles.SpamOtherTools.Value or Options.SpamOtherToolsKeybind:GetState() then
+        for _, player: Player in pairs(Players:GetPlayers()) do
             if player ~= Player then
-                for index, item in pairs(player.Backpack:GetChildren()) do
-                    item:FindFirstChildWhichIsA("RemoteEvent"):FireServer()
-                end
+                for _, v in pairs(player.Backpack:GetChildren()) do
+                    if v and v:IsA("Tool") then
+                        local Remote = v:FindFirstChildWhichIsA("RemoteEvent")
     
-                for index, item in pairs(player.Character:GetChildren()) do
-                    if item:IsA("Tool") then
-                        item:FindFirstChildWhichIsA("RemoteEvent"):FireServer()
+                        if Remote then
+                            Remote:FireServer()
+                        end
+                    end
+                end
+                for _, v in pairs(player.Character:GetChildren()) do
+                    if v and v:IsA("Tool") then
+                        local Remote = v:FindFirstChildWhichIsA("RemoteEvent")
+    
+                        if Remote then
+                            Remote:FIreServer()
+                        end
                     end
                 end
             end
         end
     end
 
-
-
     if Toggles.FigureHearing.Value then
         RemotesFolder.Crouch:FireServer(true)
         Character:SetAttribute("Crouching", true)
     end
 
-
-    Character:SetAttribute("Stunned", Toggles.StunToggle.Value)
-    Humanoid.WalkSpeed = Options.Walkspeed.Value
-    Humanoid.MaxSlopeAngle = Options.Slope.Value
-    Character:SetAttribute("CanJump", Toggles.jump.Value)
-
-    if Toggles.AutoBreakerBox.Value then
-        if RemotesFolder:FindFirstChild("EBF") then
-            RemotesFolder.EBF:FireServer()
-        end
+    if Character then
+        Character:SetAttribute("CanJump", Toggles.jump.Value)
+        Character:SetAttribute("Stunned", Toggles.StunToggle.Value)
     end
 
-    if CurrentRoomModel == nil then
-        CurrentRoom = tostring(gameData.LatestRoom.Value)
+    if Humanoid then
+        Humanoid.WalkSpeed = Options.Walkspeed.Value
+        Humanoid.MaxSlopeAngle = Options.Slope.Value
     end
 
-    
-
-    if CollisionClone and Collision then
-        if Toggles.Noclip.Value then
-            if Character:FindFirstChild("UpperTorso") then
-                Character.UpperTorso.CanCollide = not Toggles.Noclip.Value
-            end
-
-            if Character:FindFirstChild("LowerTorso") then
-                Character.LowerTorso.CanCollide = not Toggles.Noclip.Valu
-            end
-
-            if HumanoidRootPart then
-                HumanoidRootPart.CanCollide = not Toggles.Noclip.Value
-            end
-
-            Collision.CanCollide = not Toggles.Noclip.Value
-        end
-        Collision.CanCollide = not Toggles.Noclip.Value and (not Toggles.Godmode.Value)
-        Collision.CollisionCrouch.CanCollide = not Toggles.Noclip.Value and (not Toggles.Godmode.Value)
-    end
 
     if Toggles.AutoInteract.Value and Options.AutoInteractKey:GetState() then
-        for _, v in pairs(GamePrompts) do
-            if Functions.AvailablePrompt(v) then
-                fireproximityprompt(v, true)
+        local available = Functions.GetPrompts(function(prompt)
+            if not prompt or not prompt.Parent then
+                return false
+            end
+        
+            if not prompt:IsA("ProximityPrompt") then
+                return false
+            end
+        
+            if prompt.Parent:GetAttribute("JeffShop") then
+                return false
+            end
+        
+            if prompt.Parent:GetAttribute("PropType") then
+                if prompt.Parent:GetAttribute("PropType") == "Heal" and Humanoid.Health == 100 then
+                    return false
+                end
+            end
+        
+            if prompt:FindFirstAncestor("CandyRed") then
+                return false
+            end
+        
+            if prompt.KeyboardKeyCode ~= Enum.KeyCode.E then
+                return false
+            end
+        
+            if not prompt.Enabled then
+                return false
+            end
+        
+            if prompt.Parent.Name == "Retro_Wardrobe" or prompt.Parent.Name == "MinesAnchor" then
+                return false
+            end
+        
+            if Functions.DistanceFromCharacter(prompt.Parent) > prompt.MaxActivationDistance then
+                return false
+            end
+        
+            if prompt:GetAttribute("Interactions" .. Character.Name) and prompt.Parent.Name ~= "Lock" and not prompt:FindFirstAncestor("MinesGenerator") and prompt.Parent.Parent.Name ~= "MinesGateButton" and not prompt.Parent:GetAttribute("Locked") then
+                return false
+            end
+        
+            if prompt.Parent.Name == "KeyObtainFake" or prompt.Parent.Name == "Padlock" then
+                return false
+            end
+        
+            return AutoInteractPrompts[prompt.Name] ~= nil
+        end)
+
+        for _, v in pairs(available) do
+            fireproximityprompt(v, true)
+        end
+    end
+
+    if Toggles.AutoAnchor.Value and IsFloor.Mines and CurrentRoom == "50" then
+        local AnchorPromptTable = Functions.GetPrompts(function(prompt)
+            if not prompt or not prompt.Parent or prompt.Parent.Name ~= "MinesAnchor" or not prompt.Parent:IsA("Model") or prompt.Parent:GetAttribute("Activated") then
+                return false
+            end
+            if Player.PlayerGui.MainUI.MainFrame:FindFirstChild("AnchorHintFrame") and Player.PlayerGui.MainUI.MainFrame:FindFirstChild("AnchorHintFrame"):FindFirstChild("AnchorCode") then
+                return prompt.Parent.Sign.TextLabel.Text == Player.PlayerGui.MainUI.MainFrame.AnchorHintFrame.AnchorCode.Text
+            else
+                return false
+            end
+        end)
+        local CurrentAnchor = {
+            Anchor = AnchorPromptTable[1] and AnchorPromptTable[1].Parent or nil,
+            Code = if Player.PlayerGui.MainUI.MainFrame:FindFirstChild("AnchorHintFrame") and Player.PlayerGui.MainUI.MainFrame:FindFirstChild("AnchorHintFrame"):FindFirstChild("AnchorCode") then Player.PlayerGui.MainUI.MainFrame.AnchorHintFrame.Code.Text else "NoCode"
+        }
+
+        if CurrentAnchor.Anchor and CurrentAnchor.Code ~= "NoCode" then
+            CurrentAnchor.Anchor:FindFirstChildWhichIsA("RemoteFunction"):InvokeServer(CurrentAnchor)
+        end
+    end
+
+    if Toggles.ThirdPerson.Value then
+        for _, v in pairs(Character:GetChildren()) do
+            if v:IsA("Accessory") then
+                v:FindFirstChild("Handle").LocalTransparencyModifier = 0
             end
         end
     end
@@ -2731,6 +2696,12 @@ Library:GiveSignal(workspace.Drops.ChildAdded:Connect(function(child: Instance)
     task.spawn(Functions.ItemESP, child, true)
 end))
 
+Library:GiveSignal(gameData.LatestRoom.Changed:Connect(function()
+    if (IsFloor.Mines and Toggles.MinecartTeleport.Value) and (gameData.LatestRoom.Value >= 45 and gameData.LatestRoom.Value <= 49) then
+        Functions.MinecartTeleport(CurrentRoomModel)
+    end
+end))
+
 Library:GiveSignal(Player:GetAttributeChangedSignal("CurrentRoom"):Connect(function()
     if CurrentRoom == tostring(Player:GetAttribute("CurrentRoom")) then
         return
@@ -2745,6 +2716,8 @@ Library:GiveSignal(Player:GetAttributeChangedSignal("CurrentRoom"):Connect(funct
 
         if Player:GetAttribute("CurrentRoom") ~= 100 then repeat task.wait() until CurrentRooms:FindFirstChild(NextRoom) end
 
+        NextRoomModel = CurrentRooms:FindFirstChild(NextRoom) or nil
+
         if Toggles.DoorESP.Value then
             for _, v in pairs(ESPTable.Door) do
                 v:Destroy()
@@ -2752,9 +2725,14 @@ Library:GiveSignal(Player:GetAttributeChangedSignal("CurrentRoom"):Connect(funct
 
             task.spawn(Functions.DoorESP, CurrentRoomModel)
 
-            task.spawn(Functions.DoorESP, NextRoomModel)
+            if NextRoomModel then
+                task.spawn(Functions.DoorESP, NextRoomModel)
+            end
         end
 
+        if CurrentRoomModel:GetAttribute("RawName"):find("Halt") and TheMinesBypassed then
+            Library:Notification("Halt has broken the anticheat bypass.")
+        end
         task.spawn(Functions.ClearRoomESP)
 
         task.spawn(Functions.SetupCurrentRoomESP, CurrentRoomModel)
@@ -2898,10 +2876,17 @@ Library:GiveSignal(workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(f
 end))
 
 Library:GiveSignal(Character:GetAttributeChangedSignal("Climbing"):Connect(function()
-    if Character:GetAttribute("Climbing") and Toggles.AnticheatBypass.Value and not TheMinesBypassed then
-        Character:SetAttribute("Climbing", false)
-        TheMinesBypassed = true
-        Library:Notification("Anticheat bypassed! This will last until the next cutscene. Halt will break this.")
+    if not Toggles.AnticheatBypass.Value or not IsFloor.Mines or not Character:GetAttribute("Climbing") then
+        return
+    end
+
+    task.wait(1.5)
+    Character:SetAttribute("Climbing", false)
+    Library:Notification("Anticheat bypassed. This will last until Halt comes or until the next cutscene.")
+    TheMinesBypassed = true
+
+    for _, v in pairs(ESPTable.Ladder) do
+        v:Destroy()
     end
 end))
 
@@ -2951,21 +2936,26 @@ Library:OnUnload(function()
     end
     Character:SetAttribute("CanJump", false)
     Character:SetAttribute("Stunned", false)
+    RemotesFolder.ClimbLadder:FireServer()
     Humanoid.MaxSlopeAngle = 45
     FlyUtility:Stop()
     for _, v in pairs(CurrentRooms:GetDescendants()) do
-        if v:IsA("ProximityPrompt") then
-            if v:GetAttribute("OGDistance") then
-                v.MaxActivationDistance = v:GetAttribute("OGDistance")
-            end
-            if v:GetAttribute("RequiresSight") then
-                v.RequiresLineOfSight = v:GetAttribute("RequiresSight")
-            end
-        end
         task.spawn(Functions.AssetCheck, v, true)
     end
-    if Toggles.ViewmodelOffset.Value then
-        require(MainGame).tooloffset = Vector3.new(0, 0.25, 0)
+    for _, v in pairs(GamePrompts) do
+        if v:GetAttribute("OGDistance") then
+            v.MaxActivationDistance = v:GetAttribute("OGDistance")
+        end
+        if v:GetAttribute("RequiresSight") then
+            v.RequiresLineOfSight = v:GetAttribute("RequiresSight")
+        end
+    end
+    table.clear(GamePrompts)
+    if MainGameSrc then
+        MainGameSrc.tooloffset = Vector3.new(0, 0.25, 0)
+        MainGameSrc.fovtarget = 70
+    else
+        Camera.FieldOfView = 70
     end
     for _, v in pairs(Bridges) do
         if v and v.Parent then
