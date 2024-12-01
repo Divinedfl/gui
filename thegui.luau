@@ -63,7 +63,7 @@ local ToExclude = {
     "MinesFinale"
 }
 local IsFloor = {
-    HardMode = Floor == "Fools",
+    Fools = Floor == "Fools",
     Hotel = Floor == "Hotel",
     Mines = Floor == "Mines",
     Retro = Floor == "Retro",
@@ -111,6 +111,7 @@ local MainGame = Player.PlayerGui.MainUI.Initiator.Main_Game
 local screechModule = MainGame.RemoteListener.Modules.Screech
 local RunService: RunService = cloneref(game:GetService("RunService"))
 local IsBypass = false
+local TheMinesBypassed = false
 local NotifyTable = {
     ["Rush"] = {Notification = "Rush has spawned."},
     ["Ambush"] = {Notification = "Ambush has spawned."},
@@ -135,11 +136,12 @@ local ESPTable = {
     Chest = {},
     HidingSpot = {},
     Objective = {},
-    GuidingLight = {}
+    GuidingLight = {},
+    Ladder = {}
 }
 
 local Functions = {}
-local executorname = getexecutorname()
+local Camera = workspace.CurrentCamera
 
 
 local IsEntity = {
@@ -194,6 +196,7 @@ local AutoInteractPrompts = {
     ["UnlockPrompt"] = 1
 }
 local GamePrompts = {}
+local Minecarts = {}
 local RaycastParam = RaycastParams.new()
 RaycastParam.FilterType = Enum.RaycastFilterType.Exclude
 
@@ -686,6 +689,15 @@ function Functions.PlayerESP(player: Player)
     })
 end
 
+function Functions.LadderESP(ladder: Model)
+    Functions.ESP({
+        Object = ladder,
+        Text = "Ladder",
+        Color = Color3.new(0, 0, 255),
+        Type = "Ladder"
+    })
+end
+
 function Functions.AssetCheck(asset: Instance, UnloadState: boolean)
 
     if asset and asset.Parent then
@@ -698,48 +710,37 @@ function Functions.AssetCheck(asset: Instance, UnloadState: boolean)
             asset:WaitForChild("Hitbox", 5).CanTouch = if UnloadState then true else not Toggles.RemoveSnareHitbox.Value
         end
 
-        if asset.Name == "GiggleCeiling" then
-            asset:WaitForChild("Hitbox", 5).CanTouch = if UnloadState then true else not Toggles.GiggleHitboxRemoval.Value
-        end
-
-        if (asset.Name == "Seek_Arm" or asset.Name == "ChandelierObstruction") then
-            for _, v in pairs(asset:GetDescendants()) do
-                if v:IsA("BasePart") then
-                    v.CanTouch = if UnloadState then true else not Toggles.noObstaclesToggle.Value
+        if IsFloor.Mines then
+            if asset.Name == "GiggleCeiling" then
+                asset:WaitForChild("Hitbox", 5).CanTouch = if UnloadState then true else not Toggles.GiggleHitboxRemoval.Value
+            end
+    
+            if asset.Name == "GloomPile" then
+                for _, v in pairs(asset:GetDescendants()) do
+                    if v:IsA("BasePart") then
+                        v.CanTouch = if UnloadState then true else not Toggles.AntiGloomEgg.Value
+                    end
                 end
             end
         end
 
-
-        if asset.Name == "GloomPile" then
-            for _, v in pairs(asset:GetDescendants()) do
-                if v:IsA("BasePart") then
-                    v.CanTouch = if UnloadState then true else not Toggles.AntiGloomEgg.Value
+        if IsFloor.Hotel then
+            if (asset.Name == "Seek_Arm" or asset.Name == "ChandelierObstruction") then
+                for _, v in pairs(asset:GetDescendants()) do
+                    if v:IsA("BasePart") then
+                        v.CanTouch = if UnloadState then true else not Toggles.noObstaclesToggle.Value
+                    end
                 end
             end
         end
 
-
-        if asset.Name == "DoorFake" then
-            for _, v in pairs(asset:GetDescendants()) do
-                if v:IsA("BasePart") then
-                    v.CanTouch = if UnloadState then true else not Toggles.NoDupeTouch.Value
-                end
-
-
-                if v:IsA("ProximityPrompt") then
-                    v.Enabled = if UnloadState then true else not Toggles.NoDupeTouch.Value
-                end
+        if IsFloor.Hotel or IsFloor.Fools or IsFloor.Mines or IsFloor.Backdoor then
+            if asset:GetAttribute("LoadModule") == "DupeRoom" or asset:GetAttribute("LoadModule") == "SpaceSideroom" then
+                task.spawn(Functions.DupeDisable, asset, (if UnloadState then false else not Toggles.NoDupeTouch.Value))
             end
         end
 
-        if asset.Name:find("MinecartNode") and asset.Parent.Name == "RunnerNodes" and Toggles.VisualizePath.Value and getgenv().Loaded then
-            asset.Shape = Enum.PartType.Ball
-            asset.Transparency = 0 
-            asset.Color = Color3.new(0, 255, 0)
-        end
-
-        if asset:IsA("ProximityPrompt") and Loaded then
+        if (asset:IsA("ProximityPrompt") and asset.KeyboardKeyCode == Enum.KeyCode.E) and not UnloadState then
             table.insert(GamePrompts, asset)
 
             if not asset:GetAttribute("OGDistance") then
@@ -791,6 +792,20 @@ function Functions.SetupRoom(room: Model)
 
         task.delay(0.1, Functions.AssetCheck, descendant)
     end)
+end
+
+function Functions.SetupCamera(camera: Camera)
+    if camera and camera:IsA("Camera") then
+         Connections["CameraConnection"] = camera.ChildAdded:Connect(function(child)
+            if child.Name == "Guidance" then
+                task.spawn(Functions.GuidingLightESP, child)
+            end
+
+            if child.Name == "MinecartRig" then
+                table.insert(Minecarts, child)
+            end
+         end)
+    end
 end
 
 function Functions.SetupCurrentRoomESP(room: Model)
@@ -867,10 +882,10 @@ function Functions.BridgePlatform(bridge)
         clone = barrier:Clone()
         clone.Name = "_BridgeBarrier"
         clone.Parent = barrier.Parent
-        clone.CFrame = barrier.CFrame * CFrame.new(0, 0, -4)
-        clone.Size = Vector3.new(barrier.Size.X, barrier.Size.Y, 15)
+        clone.CFrame = barrier.CFrame
+        clone.Size = Vector3.new(barrier.Size.X, barrier.Size.Y, 40)
         clone.Color = Color3.new(1, 1, 1)
-        clone.Transparency = 0
+        clone.Transparency = 1
 
         table.insert(Bridges, clone)
     end
@@ -954,23 +969,24 @@ end
 
 
 
-function Functions.SetTouch(obj: Instance, CanTouch: boolean)
+function Functions.DupeDisable(dupe: Model, value: boolean)
+    if dupe and dupe:IsA("Model") and (dupe.Name == "SideroomDupe" or dupe:GetAttribute("LoadModule") == "DupeRoom" or dupe:GetAttribute("LoadModule") == "SpaceSideroom") then
+        if dupe:GetAttribute("LoadModule") == "SpaceSideroom" then
+            local SideroomCollision = dupe:WaitForChild("Collision")
 
-    if obj:IsA("BasePart") then
-        obj.CanTouch = CanTouch;
-    end
+            SideroomCollision.CanTouch = not value
+            SideroomCollision.CanCollide = value
+        else
+            local doorfake = dupe:WaitForChild("DoorFake")
 
-    for _, v in pairs(obj:GetDescendants()) do
-        if v:IsA("BasePart") then
-            v.CanTouch = CanTouch;
-        end
-
-        if obj.Name == "DoorFake" and v:IsA("ProximityPrompt") then
-            v.Enabled = CanTouch
+            doorfake:WaitForChild("Hidden").CanTouch = not value
+            
+            if doorfake:FindFirstChild("Lock") then
+                doorfake.Lock:WaitForChild("UnlockPrompt").Enabled = not value
+            end
         end
     end
 end
-
 function Functions.SetupDeleteSeek(trigger: BasePart)
     if Toggles.NoSeekFE.Value then
         Library:Notification("Attempting to delete Seek...")
@@ -989,9 +1005,13 @@ function Functions.SetupDeleteSeek(trigger: BasePart)
 
         task.spawn(function()
             repeat
-                firetouchinterest(trigger, HumanoidRootPart, 1)
+                if trigger:IsDescendantOf(workspace) then
+                    firetouchinterest(trigger, HumanoidRootPart, 1)
+                end
                 task.wait()
-                firetouchinterest(trigger, HumanoidRootPart, 0)
+                if trigger:IsDescendantOf(workspace) then
+                    firetouchinterest(trigger, HumanoidRootPart, 0)
+                end
             until not trigger:IsDescendantOf(workspace) or not Toggles.NoSeekFE.Value
 
             if not trigger:IsDescendantOf(workspace) then
@@ -1001,14 +1021,17 @@ function Functions.SetupDeleteSeek(trigger: BasePart)
     end
 end
 
-
 function Functions.MinecartTeleport(room: Model)
-    if (gameData.LatestRoom.Value >= 45 and gameData.LatestRoom.Value <= 49) and Toggles.MinecartTeleport.Value then
+    if (tonumber(room.Name) >= 45 and tonumber(room.Name) <= 49) and Toggles.MinecartTeleport.Value then
         task.spawn(function()
             repeat
                 task.wait()
-                workspace.CurrentCamera:FindFirstChild("MinecartRig").PrimaryPart.CFrame = room:FindFirstChild("Door"):FindFirstChild("Door").CFrame
-            until room:FindFirstChild("Door"):GetAttribute("Opened") or not Toggles.MinecartTeleport.Value
+                for _, v in pairs(Minecarts) do
+                    if v and v:IsDescendantOf(workspace) and v.Parent and v.Parent == Camera then
+                        v.PrimaryPart.CFrame = room:FindFirstChild("Door"):FindFirstChild("Door").CFrame
+                    end
+                end
+            until room:FindFirstChild("Door"):GetAttribute("Opened") 
         end)
     end
 end
@@ -1032,7 +1055,7 @@ function Functions.ShortName(v: Instance)
         Ret = Ret:gsub("(%l)(%u)", "%1 %2")
     end
 
-    if v.Name == "RushMoving" and v.PrimaryPart.Name ~= "RushNew" and IsFloor.HardMode then
+    if v.Name == "RushMoving" and v.PrimaryPart.Name ~= "RushNew" and IsFloor.Fools then
         Ret = v.PrimaryPart.Name
     end
 
@@ -1268,18 +1291,18 @@ Groupboxes.Automation:AddToggle("noewait", {
     Default = false,
     Tooltip = "Skips wait-time for interacting.",
 })
-if IsFloor.Hotel or IsFloor.HardMode then
+if IsFloor.Hotel or IsFloor.Fools then
     Groupboxes.Automation:AddDivider()
 end
 Groupboxes.Automation:AddToggle("autopl", {
     Text = "Auto Padlock Code",
     Default = false,
-    Visible = IsFloor.Hotel or IsFloor.HardMode
+    Visible = IsFloor.Hotel or IsFloor.Fools
 })
 Groupboxes.Automation:AddToggle("AutoBreakerBox", {
     Text = "Auto Breaker Box",
     Default = false,
-    Visible = IsFloor.Hotel or IsFloor.HardMode
+    Visible = IsFloor.Hotel or IsFloor.Fools
 })
 Groupboxes.Automation:AddToggle("AutoAnchor", {
     Text = "Auto Anchor",
@@ -1429,14 +1452,12 @@ Groupboxes.Notifying:AddToggle("NotificationSound", {
 Groupboxes.Notifying:AddToggle("plcode", {
     Text = "Padlock Code",
     Default = false,
-    Visible = IsFloor.Hotel or IsFloor.HardMode
+    Visible = IsFloor.Hotel or IsFloor.Fools
 })
 Groupboxes.Notifying:AddToggle("plrleave", {
     Text = "Player Leaving",
     Default = false,
 })
-
-
 Groupboxes.Miscellaneous = Tabs.Main:AddRightGroupbox("Miscellaneous")
 local reviveButton = Groupboxes.Miscellaneous:AddButton({
     Text = "Revive",
@@ -1466,17 +1487,17 @@ Groupboxes.AntiEntity = Tabs.Cheats:AddLeftGroupbox("Anti-Entity")
 Groupboxes.AntiEntity:AddToggle("RemoveSnareHitbox", {
     Text = "Anti-Snare",
     Default = false,
-    Visible = IsFloor.Mines or IsFloor.Hotel or IsFloor.HardMode
+    Visible = IsFloor.Mines or IsFloor.Hotel or IsFloor.Fools
 })
 Groupboxes.AntiEntity:AddToggle("NoDupeTouch", {
     Text = "Anti-Dupe",
     Default = false,
-    Visible = IsFloor.Mines or IsFloor.Hotel or IsFloor.HardMode
+    Visible = IsFloor.Mines or IsFloor.Hotel or IsFloor.Fools
 })
 Groupboxes.AntiEntity:AddToggle("nobanana", {
     Text = "Anti-Bananas",
     Default = false,
-    Visible = IsFloor.HardMode
+    Visible = IsFloor.Fools
 })
 Groupboxes.AntiEntity:AddToggle("noeyes", {
     Text = if IsFloor.Backdoor then "Anti-Lookman" else "Anti-Eyes",
@@ -1503,7 +1524,7 @@ Groupboxes.AntiEntity:AddToggle("nohalt", {
 Groupboxes.AntiEntity:AddToggle("AntiJeffClient", {
     Text = "Anti-Jeff (Client-Side)",
     Default = false,
-    Visible = IsFloor.HardMode
+    Visible = IsFloor.Fools
 })
 Groupboxes.Removal = Tabs.Cheats:AddRightGroupbox("Removal")
 Groupboxes.Removal:AddToggle("RemoveScreech", {
@@ -1521,13 +1542,13 @@ Groupboxes.Removal:AddDivider()
 Groupboxes.Removal:AddToggle("serverSideKillJeff", {
     Text = "No Jeff FE",
     Default = false,
-    Visible = IsFloor.HardMode
+    Visible = IsFloor.Fools
 })
 
 Groupboxes.Removal:AddToggle("NoSeekFE", {
     Text = "FE No Seek Trigger",
     Default = false,
-    Visible = IsFloor.Hotel or IsFloor.HardMode or IsFloor.Mines
+    Visible = IsFloor.Hotel or IsFloor.Fools or IsFloor.Mines
 })
 
 Groupboxes.SelfCheats = Tabs.Cheats:AddRightGroupbox("Self")
@@ -1544,15 +1565,21 @@ Groupboxes.SelfCheats:AddToggle("Godmode", {
     SyncToggleState = true
 })
 
+Groupboxes.SelfCheats:AddToggle("AnticheatBypass", {
+    Text = "Anticheat Bypass",
+    Default = false,
+    Visible = IsFloor.Mines
+})
+
 Groupboxes.SelfCheats:AddToggle("FigureHearing", {
     Text = "No Figure Hearing",
     Default = false,
-    Visible = IsFloor.Mines or IsFloor.HardMode or IsFloor.Hotel
+    Visible = IsFloor.Mines or IsFloor.Fools or IsFloor.Hotel
 })
 Groupboxes.SelfCheats:AddToggle("noObstaclesToggle", {
     Text = "Anti-Obstacles",
     Default = false,
-    Visible = IsFloor.Hotel or IsFloor.HardMode
+    Visible = IsFloor.Hotel or IsFloor.Fools
 })
 Groupboxes.SelfCheats:AddToggle("BridgeWalk", {
     Text = "Anti-Bridge Fall",
@@ -1564,7 +1591,7 @@ Groupboxes.SelfCheats:AddDivider()
 Groupboxes.SelfCheats:AddToggle("InfUniversalKey", {
     Text = "Infinite Items",
     Default = false,
-    Visible = not IsFloor.HardMode
+    Visible = not IsFloor.Fools
 })
 
 
@@ -1809,12 +1836,6 @@ Groupboxes.View:AddToggle("ThirdPerson", {
     Mode = "Toggle"
 })
 
-Groupboxes.View:AddToggle("VisualizePath", {
-    Text = "Visualize correct Seek minecart path",
-    Default = false,
-    Visible = IsFloor.Mines
-})
-
 Groupboxes.View:AddSlider("fovSlider", {
     Text = "Field Of View",
     Default = 70,
@@ -1920,6 +1941,10 @@ Options.FlySpeed:OnChanged(function(val)
 end)
 
 Toggles.autopl:OnChanged(function(value)
+    if not IsFloor.Hotel or not IsFloor.Fools then
+        return
+    end
+
     if value then
         for _, v in pairs(game.Players:GetPlayers()) do
             if v.Backpack:FindFirstChild("LibraryHintPaperHard") or v.Backpack:FindFirstChild("LibraryHintPaper") or v.Character:FindFirstChild("LibraryHintPaperHard") or v.Character:FindFirstChild("LibraryHintPaper") then
@@ -1933,6 +1958,9 @@ Toggles.autopl:OnChanged(function(value)
 end)
 
 Toggles.plcode:OnChanged(function(value)
+    if not IsFloor.Hotel or not IsFloor.Fools then
+        return
+    end
     if value then
         for _, v in pairs(game.Players:GetPlayers()) do
             if v.Backpack:FindFirstChild("LibraryHintPaperHard") or v.Backpack:FindFirstChild("LibraryHintPaper") or v.Character:FindFirstChild("LibraryHintPaperHard") or v.Character:FindFirstChild("LibraryHintPaper") then
@@ -1964,25 +1992,25 @@ Toggles.RemoveScreech:OnChanged(function(value)
 end)
 
 Toggles.GiggleHitboxRemoval:OnChanged(function(value)
+    if not IsFloor.Mines then
+        return
+    end
     for _, v in pairs(CurrentRoomModel:GetChildren()) do
-        for i, giggle in pairs(v:GetChildren()) do
-            if giggle.Name == "GiggleCeiling" then
-                local Hitbox = giggle:WaitForChild("Hitbox", 5)
-
-                if Hitbox then
-                    Hitbox.CanTouch = not value
-                end
-            end
+        if v.Name:find("Giggle") then
+            v:WaitForChild("Hitbox", 5).CanTouch = not value
         end
     end
 end)
 
 Toggles.AntiGloomEgg:OnChanged(function(value)
+    if not IsFloor.Mines then
+        return
+    end
     for _, v in pairs(CurrentRoomModel:GetChildren()) do
         if v.Name == "GloomPile" then
-            for index, egg in pairs(v:GetDescendants()) do
-                if egg.Name == "Egg" then
-                    egg.CanTouch = not value
+            for _, x in pairs(v:GetDescendants()) do
+                if x:IsA("BasePart") then
+                    x.CanTouch = not value
                 end
             end
         end
@@ -2017,6 +2045,9 @@ Toggles.NoCutscenes:OnChanged(function(value)
 end)
 
 Toggles.NoSeekFE:OnChanged(function()
+    if IsFloor.Rooms or IsFloor.Retro or IsFloor.Backdoor then
+        return
+    end
     if CurrentRooms:FindFirstChild(tostring(gameData.LatestRoom.Value + 1)) then
         local trigcollision = CurrentRooms[tostring(gameData.LatestRoom.Value + 1)]:FindFirstChild("TriggerEventCollision")
         local collision = if trigcollision then trigcollision:FindFirstChild("Collision") else nil
@@ -2052,26 +2083,31 @@ end)
 
 
 Toggles.RemoveSnareHitbox:OnChanged(function(value)
+    if IsFloor.Retro or IsFloor.Rooms or IsFloor.Backdoor then
+        return
+    end
     for _, v in pairs(CurrentRoomModel.Assets:GetChildren()) do
         if v.Name == "Snare" then
-            task.spawn(Functions.SetTouch, v, not value)
+            v:WaitForChild("Hitbox", 5).CanTouch = not value
         end
     end
 end)
 
 Toggles.NoDupeTouch:OnChanged(function(value)
+    if IsFloor.Rooms or IsFloor.Retro then
+        return
+    end
     for _, v in pairs(CurrentRoomModel:GetChildren()) do
-        if v.Name == "SideroomDupe" then
-            local DoorFake = v:WaitForChild("DoorFake", 5)
-
-            if DoorFake then
-                task.spawn(Functions.SetTouch, DoorFake, not value)
-            end
+        if v:GetAttribute("LoadModule") == "DupeRoom" or v:GetAttribute("LoadModule") == "SpaceSideroom" then
+            task.spawn(Functions.DupeDisable, v, not value)
         end
     end
 end)
 
 Toggles.nobanana:OnChanged(function(value)
+    if not IsFloor.Fools then
+        return
+    end
     for _, v in pairs(workspace:GetChildren()) do
         if v.Name == "BananaPeel" then
             v.CanTouch = not value
@@ -2080,22 +2116,59 @@ Toggles.nobanana:OnChanged(function(value)
 end)
 
 Toggles.nohalt:OnChanged(function(value)
+    if IsFloor.Rooms or IsFloor.Retro or IsFloor.Backdoor then
+        return
+    end
+
     local Name = if value then "_Shade" else "Shade"
 
     Shade.Name = Name
 end)
 
+Toggles.AnticheatBypass:OnChanged(function(value)
+    if value then
+        Library:Notification("To bypass the anticheat, you need to get onto a ladder. Ladder ESP will be enabled.")
+        if Character:GetAttribute("Climbing") then
+            Character:SetAttribute("Climbing", false)
+            TheMinesBypassed = true
+            Library:Notification("Anticheat bypassed! This will last until the next cutscene. Halt will break this")
+        else
+            for _, v in pairs(CurrentRooms:GetDescendants()) do
+                if v.Name == "Ladder" and v:IsA("Model") then
+                    task.spawn(Functions.LadderESP, v)
+                end
+            end
+        end
+    else
+        RemotesFolder.ClimbLadder:FireServer()
+        TheMinesBypassed = false
+        for _, v in pairs(ESPTable.Ladder) do
+            v:Destroy()
+        end
+    end
+end)
+
 Toggles.noObstaclesToggle:OnChanged(function(value)
+    if not IsFloor.Hotel or not IsFloor.Fools then
+        return
+    end
     for _, v in pairs(CurrentRoomModel.Assets:GetChildren()) do
         for i, obstr in pairs(v:GetDescendants()) do
             if obstr.Name == "Seek_Arm" or obstr.Name == "ChandelierObstruction" then
-                task.spawn(Functions.SetTouch, obstr, not value)
+                for _, x in pairs(obstr:GetDescendants()) do
+                    if x:IsA("BasePart") then
+                        x.CanTouch = not value
+                    end
+                end
             end
         end
     end
 end)
 
 Toggles.BridgeWalk:OnChanged(function(value)
+    if not IsFloor.Mines then
+        return
+    end
     if value then
         if CurrentRoomModel:FindFirstChild("Parts") then
             for _, v in pairs(CurrentRoomModel:FindFirstChild("Parts"):GetChildren()) do
@@ -2148,6 +2221,9 @@ Options.BodyRotation:OnChanged(function(value)
 end)
 
 Toggles.serverSideKillJeff:OnChanged(function(value)
+    if not IsFloor.Fools then
+        return
+    end
     if value then
         for _, v in pairs(workspace:GetChildren()) do
             if v.Name == "JeffTheKiller" then
@@ -2269,7 +2345,7 @@ end)
 if IsFloor.Mines then
     Toggles.GuidingLightESP:OnChanged(function(value)
         if value then
-            for _, v in pairs(workspace.CurrentCamera:GetChildren()) do
+            for _, v in pairs(Camera:GetChildren()) do
                 if v.Name == "Guidance" then
                     task.spawn(Functions.GuidingLightESP, v)
                 end
@@ -2458,8 +2534,8 @@ if CurrentRoomModel:GetAttribute("RawName"):find("Halt") and Options.EntityNotif
     Library:Notification("Halt will be in the next room.")
 end
 
-for _, v in pairs(CurrentRooms:GetChildren()) do
-    task.spawn(Functions.SetupRoom, v)
+for _, v in pairs(CurrentRooms:GetDescendants()) do
+    task.spawn(Functions.AssetCheck, v)
 end
 
 -- \ Main connections \ --
@@ -2480,7 +2556,7 @@ Library:GiveSignal(RunService.RenderStepped:Connect(function()
 
 
     if Toggles.ThirdPerson.Value then
-        workspace.CurrentCamera.CFrame *= CFrame.new(2, 0.5, 6)
+        Camera.CFrame *= CFrame.new(2, 0.5, 6)
         Character.Head.LocalTransparencyModifier = 0
 
         for _, v in pairs(Character:GetChildren()) do
@@ -2494,7 +2570,7 @@ Library:GiveSignal(RunService.RenderStepped:Connect(function()
         require(MainGame).csgo = CFrame.new()
     end
 
-    workspace.CurrentCamera.FieldOfView = Options.fovSlider.Value
+    Camera.FieldOfView = Options.fovSlider.Value
 
     if Supported["require"] then
         require(MainGame).fovtarget = Options.fovSlider.Value
@@ -2614,17 +2690,6 @@ Library:GiveSignal(workspace.ChildAdded:Connect(function(child)
     end
 end))
 
-Library:GiveSignal(workspace.CurrentCamera.ChildAdded:Connect(function(child)
-
-    if IsFloor.Mines and Toggles.GuidingLightESP.Value then
-        task.spawn(Functions.GuidingLightESP, child)
-    end
-
-    if IsFloor.Mines and Toggles.MinecartTeleport.Value and child.Name == "MinecartRig" then
-        Functions.MinecartTeleport()
-    end
-end))
-
 
 Library:GiveSignal(PxPromptService.PromptButtonHoldBegan:Connect(function(prompt, playerWhoTriggered)
     if Toggles.noewait.Value then
@@ -2737,8 +2802,8 @@ Library:GiveSignal(Character:GetAttributeChangedSignal("Hiding"):Connect(functio
     end
 end))
 
-Library:GiveSignal(PxPromptService.PromptTriggered:Connect(function(v, playerWhoTriggered)
-    if not Toggles.InfUniversalKey.Value or not playerWhoTriggered == Player or IsFloor.HardMode then
+Library:GiveSignal(PxPromptService.PromptButtonHoldEnded:Connect(function(v, playerWhoTriggered)
+    if not Toggles.InfUniversalKey.Value or not playerWhoTriggered == Player or IsFloor.Fools then
         return;
     end
     
@@ -2817,7 +2882,6 @@ Library:GiveSignal(game:GetService("Lighting"):GetPropertyChangedSignal("FogEnd"
     if Toggles.NoFog.Value then
         game:GetService("Lighting").FogStart = 9e9
         game:GetService("Lighting").FogEnd = 9e9
-
     end
 end))
 
@@ -2827,6 +2891,23 @@ Library:GiveSignal(game:GetService("Lighting"):GetPropertyChangedSignal("Ambient
     end
 end))
 
+Library:GiveSignal(workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(function()
+    Camera = workspace.CurrentCamera
+
+    Functions.SetupCamera(Camera)
+end))
+
+Library:GiveSignal(Character:GetAttributeChangedSignal("Climbing"):Connect(function()
+    if Character:GetAttribute("Climbing") and Toggles.AnticheatBypass.Value and not TheMinesBypassed then
+        Character:SetAttribute("Climbing", false)
+        TheMinesBypassed = true
+        Library:Notification("Anticheat bypassed! This will last until the next cutscene. Halt will break this.")
+    end
+end))
+
+
+
+Functions.SetupCamera(Camera)
 local MenuGroup = Tabs.Configs:AddLeftGroupbox("Menu")
 
 MenuGroup:AddButton("Unload", function() task.spawn(Library.Unload) end)
@@ -2872,7 +2953,7 @@ Library:OnUnload(function()
     Character:SetAttribute("Stunned", false)
     Humanoid.MaxSlopeAngle = 45
     FlyUtility:Stop()
-    for _, v in pairs(workspace.CurrentRooms:GetDescendants()) do
+    for _, v in pairs(CurrentRooms:GetDescendants()) do
         if v:IsA("ProximityPrompt") then
             if v:GetAttribute("OGDistance") then
                 v.MaxActivationDistance = v:GetAttribute("OGDistance")
@@ -2937,6 +3018,8 @@ SaveManager:SetIgnoreIndexes({ "MenuKeybind" })
 
 ThemeManager:SetFolder("silly v2")
 SaveManager:SetFolder("silly v2/DOORS")
+
+SaveManager:SetSubFolder(Floor)
 
 
 
