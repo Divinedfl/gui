@@ -50,7 +50,6 @@ function SpeedBypassUtil:Start()
                 repeat
                     task.wait()
                 until not HumanoidRootPart.Anchored
-                task.wait(0.65)
             else
                 CollisionClone.Massless = not CollisionClone.Massless
             end
