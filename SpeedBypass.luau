@@ -6,8 +6,6 @@
     SpeedBypass:Start() - Starts the massless speed bypass.
     SpeedBypass:Stop() - Pauses the speed bypass.
     SpeedBypass:SetDelay(delay: number) - Sets the speed bypass's delay accordingly. Adjusts SpeedBypass.MasslessDelay so you can do this manually as well.
-    SpeedBypass:Toggle() - Toggles the state of the speed bypass.
-    SpeedBypass:SetValue(value: boolean) - Sets the speed bypass's value to the following value.
 ]]
 
 --[[ Note:
@@ -64,22 +62,6 @@ function SpeedBypassUtil:Stop()
 
     if CollisionClone then
         CollisionClone.Massless = false
-    end
-end
-
-function SpeedBypassUtil:Toggle()
-    if self.IsBypassing then
-        self:Stop() -- if it's currently bypassing, toggling would be turning it off, obviously
-    else
-        self:Start() -- and vice versa.
-    end
-end
-
-function SpeedBypassUtil:SetValue(value: boolean)
-    if value then
-        self:Start()
-    else
-        self:Stop()
     end
 end
 
