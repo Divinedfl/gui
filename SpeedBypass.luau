@@ -41,7 +41,7 @@ function SpeedBypassUtil:Start()
     self.IsBypassing = true
 
     task.spawn(function()
-        while Collision and CollisionClone and Character and Player:GetAttribute("Alive") and Character:FindFirstChild("HumanoidRootPart") and self.IsBypassing do
+        while Collision and CollisionClone and Character and Character:FindFirstChild("HumanoidRootPart") and self.IsBypassing do
             if HumanoidRootPart.Anchored then
                 CollisionClone.Massless = true -- lagback fix, sort of. instead of repeatedly freezing you, leaving you prone to entities, it just instantly teleports you back.
                 
