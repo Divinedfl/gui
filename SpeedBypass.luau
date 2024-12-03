@@ -70,17 +70,17 @@ end
 
 function SpeedBypassUtil:Toggle()
     if self.IsBypassing then
-        task.spawn(self:Stop()) -- if it's currently bypassing, toggling would be turning it off, obviously
+        self:Stop() -- if it's currently bypassing, toggling would be turning it off, obviously
     else
-        task.spawn(self:Start()) -- and vice versa.
+        self:Start() -- and vice versa.
     end
 end
 
 function SpeedBypassUtil:SetValue(value: boolean)
     if value then
-        task.spawn(self:Start())
+        self:Start()
     else
-        task.spawn(self:Stop())
+        self:Stop()
     end
 end
 
